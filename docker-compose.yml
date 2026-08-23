@@ -1,0 +1,83 @@
+services:
+  version: '3.9'
+
+  services:
+    db:
+      image: postgres:15-alpine
+      container_name: pulse_monitor_db
+      environment:
+        POSTGRES_DB: pulse_monitor
+        POSTGRES_USER: postgres
+        POSTGRES_PASSWORD: postgres
+      ports:
+        - "5432:5432"
+      volumes:
+        - postgres_data:/var/lib/postgresql/data
+      healthcheck:
+        test: [ "CMD-SHELL", "pg_isready -U postgres" ]
+        interval: 10s
+        timeout: 5s
+        retries: 5
+
+    redis:
+      image: redis:7-alpine
+      container_name: pulse_monitor_redis
+      ports:
+        - "6379:6379"
+      healthcheck:
+        test: [ "CMD", "redis-cli", "ping" ]
+        interval: 10s
+        timeout: 5s
+        retries: 5
+
+    web:
+      build: .
+      container_name: pulse_monitor_web
+      command: sh -c "python manage.py migrate && python manage.py runserver 0.0.0.0:8000"
+      ports:
+        - "8000:8000"
+      environment:
+        - DEBUG=True
+        - SECRET_KEY=dev-secret-key-change-in-prod
+        - DB_ENGINE=django.db.backends.postgresql
+        - DB_NAME=pulse_monitor
+        - DB_USER=postgres
+        - DB_PASSWORD=postgres
+        - DB_HOST=db
+        - DB_PORT=5432
+        - REDIS_URL=redis://redis:6379/0
+      depends_on:
+        db:
+          condition: service_healthy
+        redis:
+          condition: service_healthy
+      volumes:
+        - .:/app
+      env_file:
+        - .env
+
+    celery:
+      build: .
+      container_name: pulse_monitor_celery
+      command: celery -A core worker -l info
+      environment:
+        - DEBUG=True
+        - SECRET_KEY=dev-secret-key-change-in-prod
+        - DB_ENGINE=django.db.backends.postgresql
+        - DB_NAME=pulse_monitor
+        - DB_USER=postgres
+        - DB_PASSWORD=postgres
+        - DB_HOST=db
+        - DB_PORT=5432
+        - REDIS_URL=redis://redis:6379/0
+      depends_on:
+        - db
+        - redis
+        - web
+      volumes:
+        - .:/app
+      env_file:
+        - .env
+
+  volumes:
+    postgres_data:
