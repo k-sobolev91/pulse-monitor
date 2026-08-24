@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pulse Monitor - Dashboard</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #f5f5f5;
+            color: #333;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        header {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 30px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+        h1 { font-size: 28px; margin-bottom: 10px; }
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 15px;
+            margin-top: 20px;
+        }
+        .stat {
+            background: #f9f9f9;
+            padding: 15px;
+            border-radius: 6px;
+            text-align: center;
+            border-left: 4px solid #ddd;
+        }
+        .stat.up { border-left-color: #28a745; }
+        .stat.down { border-left-color: #dc3545; }
+        .stat.unknown { border-left-color: #6c757d; }
+        .stat-value { font-size: 24px; font-weight: bold; }
+        .stat-label { font-size: 12px; color: #666; margin-top: 5px; }
+        .services-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+            gap: 20px;
+        }
+        .service-card {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            border-top: 4px solid #ddd;
+        }
+        .service-card.up { border-top-color: #28a745; }
+        .service-card.down { border-top-color: #dc3545; }
+        .service-card.unknown { border-top-color: #6c757d; }
+        .service-name {
+            font-size: 18px;
+            font-weight: bold;
+            margin-bottom: 10px;
+        }
+        .service-url {
+            font-size: 12px;
+            color: #666;
+            word-break: break-all;
+            margin-bottom: 10px;
+        }
+        .status-badge {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: bold;
+            color: white;
+            margin-bottom: 10px;
+        }
+        .status-badge.up { background: #28a745; }
+        .status-badge.down { background: #dc3545; }
+        .status-badge.unknown { background: #6c757d; }
+        .last-checked {
+            font-size: 11px;
+            color: #999;
+            margin-top: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>⚡ Pulse Monitor</h1>
+            <p style="color: #666; font-size: 14px;">Real-time service monitoring dashboard</p>
+
+            <div class="stats">
+                <div class="stat up">
+                    <div class="stat-value">{{ stats.up }}</div>
+                    <div class="stat-label">UP</div>
+                </div>
+                <div class="stat down">
+                    <div class="stat-value">{{ stats.down }}</div>
+                    <div class="stat-label">DOWN</div>
+                </div>
+                <div class="stat unknown">
+                    <div class="stat-value">{{ stats.unknown }}</div>
+                    <div class="stat-label">UNKNOWN</div>
+                </div>
+                <div class="stat">
+                    <div class="stat-value">{{ stats.total }}</div>
+                    <div class="stat-label">TOTAL</div>
+                </div>
+            </div>
+        </header>
+
+        <h2 style="margin-bottom: 20px;">Services</h2>
+        {% if services %}
+            <div class="services-grid">
+                {% for service in services %}
+                    <div class="service-card {{ service.status }}">
+                        <div class="service-name">{{ service.name }}</div>
+                        <div class="service-url">{{ service.url }}</div>
+                        <span class="status-badge {{ service.status }}">{{ service.get_status_display }}</span>
+
+                        {% if service.last_checked %}
+                            <div class="last-checked">
+                                ✓ Checked: {{ service.last_checked|date:"H:i:s" }}
+                            </div>
+                        {% else %}
+                            <div class="last-checked">
+                                ⟳ Never checked
+                            </div>
+                        {% endif %}
+                    </div>
+                {% endfor %}
+            </div>
+        {% else %}
+            <p style="text-align: center; color: #999; padding: 40px;">
+                No services configured yet. <a href="/admin/monitor/service/">Add one →</a>
+            </p>
+        {% endif %}
+    </div>
+</body>
+</html>

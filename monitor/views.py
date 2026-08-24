@@ -4,6 +4,8 @@ from rest_framework.response import Response
 from .models import Service, Check
 from .serializers import ServiceSerializer, ServiceDetailSerializer, CheckSerializer
 from .tasks import check_service
+from django.shortcuts import render
+from django.views import View
 
 
 class ServiceViewSet(viewsets.ModelViewSet):
@@ -51,3 +53,24 @@ class CheckViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = Check.objects.all()
     serializer_class = CheckSerializer
     filterset_fields = ['service', 'status']
+
+
+class DashboardView(View):
+    """Веб-дашборд мониторинга"""
+
+    def get(self, request):
+        services = Service.objects.all().prefetch_related('checks')
+
+        # Группируем проверки по статусу
+        stats = {
+            'total': services.count(),
+            'up': services.filter(status='up').count(),
+            'down': services.filter(status='down').count(),
+            'unknown': services.filter(status='unknown').count(),
+        }
+
+        context = {
+            'services': services,
+            'stats': stats,
+        }
+        return render(request, 'monitor/dashboard.html', context)
