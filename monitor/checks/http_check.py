@@ -17,6 +17,7 @@ class HTTPChecker:
         status = 'unknown'
         status_code = None
         response_time = None
+        old_status = self.service.status
 
         try:
             response = requests.get(
@@ -56,12 +57,15 @@ class HTTPChecker:
             error_message=error_message
         )
 
-        old_status = self.service.status
         self.service.status = status
         self.service.last_checked = timezone.now()
 
         if old_status != status:
             self.service.last_status_change = timezone.now()
+            # Отправить алерт при изменении статуса
+            from monitor.alerts import TelegramAlert
+            alert = TelegramAlert()
+            alert.status_changed(self.service, old_status, status)
 
         self.service.save()
 

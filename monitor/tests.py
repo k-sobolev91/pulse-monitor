@@ -2,6 +2,7 @@ import pytest
 from django.test import TestCase
 from unittest.mock import patch, MagicMock
 from monitor.checks.http_check import HTTPChecker
+import os
 from django.utils import timezone
 from monitor.models import Service, Check
 from rest_framework.test import APIClient
@@ -29,6 +30,7 @@ class TestHTTPChecker(TestCase):
 
         checker = HTTPChecker(self.service)
         check = checker.check()
+        self.service.refresh_from_db()  # Обновить объект из БД
 
         self.assertEqual(check.status, 'up')
         self.assertEqual(check.status_code, 200)
@@ -41,10 +43,10 @@ class TestHTTPChecker(TestCase):
         mock_response = MagicMock()
         mock_response.status_code = 500
         mock_get.return_value = mock_response
-
         checker = HTTPChecker(self.service)
         check = checker.check()
 
+        self.service.refresh_from_db()  # Обновить объект из БД
         self.assertEqual(check.status, 'down')
         self.assertEqual(check.status_code, 500)
         self.assertIn('HTTP 500', check.error_message)
@@ -57,6 +59,8 @@ class TestHTTPChecker(TestCase):
 
         checker = HTTPChecker(self.service)
         check = checker.check()
+        self.service.refresh_from_db()  # Обновить объект из БД
+
 
         self.assertEqual(check.status, 'timeout')
         self.assertIn('Timeout', check.error_message)
@@ -69,6 +73,7 @@ class TestHTTPChecker(TestCase):
 
         checker = HTTPChecker(self.service)
         check = checker.check()
+        self.service.refresh_from_db()  # Обновить объект из БД
 
         self.assertEqual(check.status, 'down')
         self.assertIn('Connection error', check.error_message)
@@ -257,3 +262,56 @@ class TestCheckAPI(TestCase):
         self.assertEqual(response.status_code, http_status.HTTP_200_OK)
         self.assertEqual(response.data['status'], 'up')
         self.assertEqual(response.data['response_time'], 100)
+
+@pytest.mark.django_db
+class TestTelegramAlert(TestCase):
+    """Тесты для Telegram алертов"""
+
+    def setUp(self):
+        self.service = Service.objects.create(
+            name="Alert Test Service",
+            url="https://alert-test.example.com",
+            status='up'
+        )
+
+    @patch.dict(os.environ, {'TELEGRAM_BOT_TOKEN': 'test-token', 'TELEGRAM_CHAT_ID': '123'})
+    @patch('monitor.alerts.requests.post')
+    def test_status_changed_alert(self, mock_post):
+        """Проверка отправки алерта при изменении статуса"""
+        from monitor.alerts import TelegramAlert
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_post.return_value = mock_response
+
+        alert = TelegramAlert()
+        self.service.last_status_change = timezone.now()
+        result = alert.status_changed(self.service, 'up', 'down')
+
+        self.assertTrue(result)
+        mock_post.assert_called_once()
+        call_args = mock_post.call_args
+        self.assertIn('chat_id', call_args[1]['json'])
+        self.assertIn('test-token', call_args[0][0])
+
+    @patch.dict(os.environ, {'TELEGRAM_BOT_TOKEN': '', 'TELEGRAM_CHAT_ID': ''})
+    def test_alert_disabled_when_no_credentials(self):
+        """Алерты отключены если нет token/chat_id"""
+        from monitor.alerts import TelegramAlert
+
+        alert = TelegramAlert()
+        self.assertFalse(alert.enabled)
+
+    @patch.dict(os.environ, {'TELEGRAM_BOT_TOKEN': 'test-token', 'TELEGRAM_CHAT_ID': '123'})
+    @patch('monitor.alerts.requests.post')
+    def test_alert_handles_network_error(self, mock_post):
+        """Алерт корректно обрабатывает ошибки сети"""
+        from monitor.alerts import TelegramAlert
+
+        mock_post.side_effect = Exception("Network error")
+
+        alert = TelegramAlert()
+        self.service.last_status_change = timezone.now()
+        result = alert.status_changed(self.service, 'up', 'down')
+
+        self.assertFalse(result)
