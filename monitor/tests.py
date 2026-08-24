@@ -4,6 +4,8 @@ from unittest.mock import patch, MagicMock
 from monitor.checks.http_check import HTTPChecker
 from django.utils import timezone
 from monitor.models import Service, Check
+from rest_framework.test import APIClient
+from rest_framework import status as http_status
 
 
 @pytest.mark.django_db
@@ -157,3 +159,101 @@ class TestTasks(TestCase):
 
         mock_delay.assert_not_called()
         self.assertIn('Triggered 0', result)
+@pytest.mark.django_db
+class TestServiceAPI(TestCase):
+    """Тесты для REST API сервисов"""
+
+    def setUp(self):
+        self.client = APIClient()
+        self.service = Service.objects.create(
+            name="Test API Service",
+            url="https://api.example.com",
+            status='up'
+        )
+
+    def test_list_services(self):
+        """GET /api/services/ — список сервисов"""
+        response = self.client.get('/api/services/')
+        self.assertEqual(response.status_code, http_status.HTTP_200_OK)
+        self.assertEqual(len(response.data['results']), 1)
+        self.assertEqual(response.data['results'][0]['name'], "Test API Service")
+
+    def test_retrieve_service(self):
+        """GET /api/services/{id}/ — детали сервиса"""
+        response = self.client.get(f'/api/services/{self.service.id}/')
+        self.assertEqual(response.status_code, http_status.HTTP_200_OK)
+        self.assertEqual(response.data['name'], "Test API Service")
+        self.assertIn('recent_checks', response.data)
+
+    def test_create_service(self):
+        """POST /api/services/ — создать сервис"""
+        data = {
+            'name': 'New Service',
+            'url': 'https://new.example.com',
+            'check_interval': 600,
+            'timeout': 15
+        }
+        response = self.client.post('/api/services/', data)
+        self.assertEqual(response.status_code, http_status.HTTP_201_CREATED)
+        self.assertTrue(Service.objects.filter(name='New Service').exists())
+
+    def test_update_service(self):
+        """PATCH /api/services/{id}/ — обновить сервис"""
+        data = {'check_interval': 900}
+        response = self.client.patch(f'/api/services/{self.service.id}/', data)
+        self.assertEqual(response.status_code, http_status.HTTP_200_OK)
+        self.service.refresh_from_db()
+        self.assertEqual(self.service.check_interval, 900)
+
+    def test_delete_service(self):
+        """DELETE /api/services/{id}/ — удалить сервис"""
+        response = self.client.delete(f'/api/services/{self.service.id}/')
+        self.assertEqual(response.status_code, http_status.HTTP_204_NO_CONTENT)
+        self.assertFalse(Service.objects.filter(id=self.service.id).exists())
+
+    @patch('monitor.views.check_service.delay')
+    def test_check_now_action(self, mock_delay):
+        """POST /api/services/{id}/check_now/ — запустить проверку"""
+        mock_delay.return_value = MagicMock(id='task-123')
+        response = self.client.post(f'/api/services/{self.service.id}/check_now/')
+        self.assertEqual(response.status_code, http_status.HTTP_202_ACCEPTED)
+        self.assertIn('Check triggered', response.data['message'])
+        mock_delay.assert_called_once_with(self.service.id)
+
+    def test_service_history_action(self):
+        """GET /api/services/{id}/history/ — история проверок"""
+        Check.objects.create(service=self.service, status='up', response_time=100)
+        Check.objects.create(service=self.service, status='up', response_time=120)
+
+        response = self.client.get(f'/api/services/{self.service.id}/history/')
+        self.assertEqual(response.status_code, http_status.HTTP_200_OK)
+        self.assertEqual(len(response.data), 2)
+
+
+@pytest.mark.django_db
+class TestCheckAPI(TestCase):
+    """Тесты для REST API проверок"""
+
+    def setUp(self):
+        self.client = APIClient()
+        self.service = Service.objects.create(name="Test", url="https://test.com")
+        self.check = Check.objects.create(
+            service=self.service,
+            status='up',
+            response_time=100,
+            status_code=200
+        )
+
+    def test_list_checks(self):
+        """GET /api/checks/ — список всех проверок"""
+        response = self.client.get('/api/checks/')
+        self.assertEqual(response.status_code, http_status.HTTP_200_OK)
+        self.assertEqual(len(response.data['results']), 1)
+        self.assertEqual(response.data['results'][0]['status'], 'up')
+
+    def test_retrieve_check(self):
+        """GET /api/checks/{id}/ — детали проверки"""
+        response = self.client.get(f'/api/checks/{self.check.id}/')
+        self.assertEqual(response.status_code, http_status.HTTP_200_OK)
+        self.assertEqual(response.data['status'], 'up')
+        self.assertEqual(response.data['response_time'], 100)
